@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import type { ImportJobSummary } from "@/lib/api";
-import { fetchImports, uploadGedcom } from "@/lib/api";
+import { fetchAuthSession, fetchImports, uploadGedcom } from "@/lib/api";
 
 export default function ImportsPage() {
+  const router = useRouter();
   const [imports, setImports] = useState<ImportJobSummary[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [statusMessage, setStatusMessage] = useState("Load GEDCOM files into the pilot workspace.");
@@ -19,6 +21,19 @@ export default function ImportsPage() {
 
     async function loadImports() {
       try {
+        setStatusMessage("Checking curator access.");
+        const session = await fetchAuthSession();
+        if (cancelled) {
+          return;
+        }
+
+        if (!session) {
+          setStatusMessage("Redirecting to sign in.");
+          router.replace("/login");
+          return;
+        }
+
+        setStatusMessage(`Loading imports for ${session.user.displayName}.`);
         const jobs = await fetchImports();
         if (!cancelled) {
           setImports(jobs);
@@ -34,7 +49,7 @@ export default function ImportsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [router]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -73,8 +88,8 @@ export default function ImportsPage() {
             Upload a GEDCOM file, archive the raw source in MinIO, record the import in PostgreSQL,
             and replace the pilot workspace graph in Neo4j plus OpenSearch.
           </p>
-          <Link href="/" className="heroLink">
-            Back to workspace
+          <Link href="/admin" className="heroLink">
+            Back to admin overview
           </Link>
         </div>
         <div className="heroRail">

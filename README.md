@@ -55,7 +55,13 @@ This repository is currently not open source. All rights are reserved until a li
    ```
 
 7. Open `http://localhost:3000`.
-   Visit `http://localhost:3000/admin/imports` to upload a GEDCOM file into the local pilot workspace.
+   The web app now redirects through `http://localhost:3000/login` and uses a Postgres-backed bootstrap curator account:
+
+   - email: `curator@livingarchive.org`
+   - password: `ArchiveDemo!2026`
+
+   Visit `http://localhost:3000/admin/imports` after signing in to upload a GEDCOM file into the local pilot workspace.
+   Visit `http://localhost:3000/admin/records/new` after signing in to add a family member manually through the guided editor. Saving the form creates the person and optional parent or partner links directly in Neo4j so the tree can render the new record immediately.
 
 8. Inspect runtime health if needed:
 
@@ -69,10 +75,12 @@ This first slice deliberately favors a real local-development path over breadth:
 
 - service-backed genealogy workspace with Neo4j/OpenSearch/Redis integration and seed fallback
 - GEDCOM upload flow that archives raw files in MinIO, records import jobs in PostgreSQL, and rebuilds the graph in Neo4j plus OpenSearch
+- Postgres-backed bootstrap auth with persistent users and login sessions for the curator workspace
+- guided manual record entry for non-technical admins, with form submission creating people plus family links directly in Neo4j
 - REST endpoints for health, imports, summary, search, subgraphs, lineage, and kinship
 - GraphQL queries for person lookup, search hydration, and workspace scene bootstrap
 - privacy masking for living people when viewed as a restricted viewer
-- a dashboard-style web UI with an orbitable scene, search-to-focus flow, and admin import console
+- a dashboard-style web UI with an orbitable scene, search-to-focus flow, admin import console, and manual record editor
 
 ## Sample data
 
@@ -84,10 +92,11 @@ Use the sample GEDCOM at `docs/examples/pilot-family.ged` to exercise the import
 - Node dependencies live under the root npm workspace.
 - All public-facing behavior should stay documented in `docs/` before new feature branches sprawl.
 - Heavy infrastructure exists under `infra/`, but the API also falls back gracefully when those services are unavailable.
+- Manual family-member creation requires Neo4j because new people and relationships are written into the live graph, not the in-memory seed fallback.
 
 ## Next milestones
 
-- add PostgreSQL-backed auth, workspace ownership, and edit flows
+- add update/delete flows, richer evidence capture, and curator review around manual records
 - add merge review and deterministic identity-resolution tooling after imports
 - harden privacy, saved scenes, and evidence/source workflows
 - expand the scene from canonical mode to radial and local-force modes

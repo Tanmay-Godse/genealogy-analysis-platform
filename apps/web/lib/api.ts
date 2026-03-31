@@ -85,7 +85,46 @@ export type KinshipResult = {
   evidence: EvidenceReference[];
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+export type AuthUserSummary = {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: ViewerRole;
+  createdAt: string | null;
+  lastLoginAt: string | null;
+};
+
+export type AuthSessionSummary = {
+  user: AuthUserSummary;
+  rememberDevice: boolean;
+  createdAt: string | null;
+  expiresAt: string;
+};
+
+export type RecordCreateInput = {
+  firstName: string;
+  lastName: string;
+  branch: string;
+  birthLabel: string;
+  birthPlace: string;
+  deathLabel: string;
+  deathPlace: string;
+  isLiving: boolean;
+  summary: string;
+  notes: string;
+  fatherId: string | null;
+  motherId: string | null;
+  partnerId: string | null;
+};
+
+export type RecordCreateResult = {
+  workspaceId: string;
+  graphVersion: string;
+  person: PersonSummary;
+  relationships: RelationshipSummary[];
+};
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 function mapPersonSummary(payload: {
   id: string;
@@ -198,6 +237,57 @@ function mapImportJobSummary(payload: {
   };
 }
 
+function mapAuthSessionSummary(payload: {
+  user: {
+    user_id?: string;
+    userId?: string;
+    email: string;
+    display_name?: string;
+    displayName?: string;
+    role: ViewerRole;
+    created_at?: string | null;
+    createdAt?: string | null;
+    last_login_at?: string | null;
+    lastLoginAt?: string | null;
+  };
+  remember_device?: boolean;
+  rememberDevice?: boolean;
+  created_at?: string | null;
+  createdAt?: string | null;
+  expires_at?: string;
+  expiresAt?: string;
+}): AuthSessionSummary {
+  return {
+    user: {
+      userId: payload.user.user_id ?? payload.user.userId ?? "",
+      email: payload.user.email,
+      displayName: payload.user.display_name ?? payload.user.displayName ?? "Archive user",
+      role: payload.user.role,
+      createdAt: payload.user.created_at ?? payload.user.createdAt ?? null,
+      lastLoginAt: payload.user.last_login_at ?? payload.user.lastLoginAt ?? null,
+    },
+    rememberDevice: payload.remember_device ?? payload.rememberDevice ?? false,
+    createdAt: payload.created_at ?? payload.createdAt ?? null,
+    expiresAt: payload.expires_at ?? payload.expiresAt ?? "",
+  };
+}
+
+function mapRecordCreateResult(payload: {
+  workspace_id?: string;
+  workspaceId?: string;
+  graph_version?: string;
+  graphVersion?: string;
+  person: Parameters<typeof mapPersonSummary>[0];
+  relationships: Array<Parameters<typeof mapRelationshipSummary>[0]>;
+}): RecordCreateResult {
+  return {
+    workspaceId: payload.workspace_id ?? payload.workspaceId ?? "unknown-workspace",
+    graphVersion: payload.graph_version ?? payload.graphVersion ?? "unknown-version",
+    person: mapPersonSummary(payload.person),
+    relationships: payload.relationships.map(mapRelationshipSummary),
+  };
+}
+
 async function graphqlRequest<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const response = await fetch(`${API_BASE_URL}/graphql`, {
     method: "POST",
@@ -206,6 +296,7 @@ async function graphqlRequest<T>(query: string, variables?: Record<string, unkno
     },
     body: JSON.stringify({ query, variables }),
     cache: "no-store",
+    credentials: "include",
   });
 
   if (!response.ok) {
@@ -231,6 +322,7 @@ async function graphqlRequest<T>(query: string, variables?: Record<string, unkno
 export async function fetchWorkspaceSummary(): Promise<WorkspaceSummary> {
   const response = await fetch(`${API_BASE_URL}/api/v1/workspace/summary`, {
     cache: "no-store",
+    credentials: "include",
   });
 
   if (!response.ok) {
@@ -374,7 +466,7 @@ export async function fetchSubgraph(
 ): Promise<GraphChunk> {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/graph/subgraph?person_id=${personId}&depth=${depth}&role=${role}`,
-    { cache: "no-store" },
+    { cache: "no-store", credentials: "include" },
   );
 
   if (!response.ok) {
@@ -392,7 +484,7 @@ export async function fetchLineage(
 ): Promise<GraphChunk> {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/graph/lineage?person_id=${personId}&direction=${direction}&depth=${depth}&role=${role}`,
-    { cache: "no-store" },
+    { cache: "no-store", credentials: "include" },
   );
 
   if (!response.ok) {
@@ -417,7 +509,7 @@ export async function fetchKinship(
 
   const response = await fetch(
     `${API_BASE_URL}/api/v1/graph/kinship?source_id=${sourceId}&target_id=${targetId}&role=${role}`,
-    { cache: "no-store" },
+    { cache: "no-store", credentials: "include" },
   );
 
   if (!response.ok) {
@@ -458,7 +550,10 @@ export async function fetchKinship(
 }
 
 export async function fetchImports(): Promise<ImportJobSummary[]> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/imports`, { cache: "no-store" });
+  const response = await fetch(`${API_BASE_URL}/api/v1/imports`, {
+    cache: "no-store",
+    credentials: "include",
+  });
 
   if (!response.ok) {
     throw new Error(`Import list request failed with status ${response.status}.`);
@@ -475,6 +570,7 @@ export async function uploadGedcom(file: File): Promise<ImportJobSummary> {
   const response = await fetch(`${API_BASE_URL}/api/v1/imports/gedcom`, {
     method: "POST",
     body: formData,
+    credentials: "include",
   });
 
   if (!response.ok) {
@@ -483,4 +579,92 @@ export async function uploadGedcom(file: File): Promise<ImportJobSummary> {
   }
 
   return mapImportJobSummary(await response.json());
+}
+
+export async function createFamilyRecord(input: RecordCreateInput): Promise<RecordCreateResult> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/records`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify({
+      first_name: input.firstName,
+      last_name: input.lastName,
+      branch: input.branch,
+      birth_label: input.birthLabel || null,
+      birth_place: input.birthPlace || null,
+      death_label: input.deathLabel || null,
+      death_place: input.deathPlace || null,
+      is_living: input.isLiving,
+      summary: input.summary,
+      notes: input.notes || null,
+      father_id: input.fatherId,
+      mother_id: input.motherId,
+      partner_id: input.partnerId,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Record creation failed with status ${response.status}.`);
+  }
+
+  return mapRecordCreateResult(await response.json());
+}
+
+export async function loginUser(input: {
+  email: string;
+  password: string;
+  rememberDevice: boolean;
+}): Promise<AuthSessionSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: input.email,
+      password: input.password,
+      remember_device: input.rememberDevice,
+    }),
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Login failed with status ${response.status}.`);
+  }
+
+  return mapAuthSessionSummary(await response.json());
+}
+
+export async function fetchAuthSession(): Promise<AuthSessionSummary | null> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/session`, {
+    cache: "no-store",
+    credentials: "include",
+  });
+
+  if (response.status === 401) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Session request failed with status ${response.status}.`);
+  }
+
+  return mapAuthSessionSummary(await response.json());
+}
+
+export async function logoutUser(): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+    method: "POST",
+    credentials: "include",
+  });
+
+  if (!response.ok && response.status !== 204) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Logout failed with status ${response.status}.`);
+  }
 }

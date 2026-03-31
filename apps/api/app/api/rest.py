@@ -1,11 +1,120 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.responses import JSONResponse
 
-from app.models import LineageDirection, Role
+from app.models import LineageDirection, LoginRequest, RecordCreateRequest, Role
 from app.runtime import get_graph_service
 
 router = APIRouter(prefix="/api/v1", tags=["graph"])
+
+
+def _require_curator_session(request: Request):
+    service = get_graph_service(request)
+    session_cookie = request.cookies.get(service.settings.auth_session_cookie_name)
+
+    try:
+        session = service.get_auth_session(session_cookie or "")
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    if not session:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+
+    if session.user.role == Role.VIEWER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Editor access required.")
+
+    return service, session
+
+
+@router.post("/auth/login")
+def login(request: Request, payload: LoginRequest, response: Response):
+    service = get_graph_service(request)
+
+    try:
+        session_id, session = service.authenticate_user(
+            email=payload.email,
+            password=payload.password,
+            remember_device=payload.remember_device,
+        )
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
+
+    max_age = service.session_ttl_seconds(remember_device=payload.remember_device)
+    response.set_cookie(
+        key=service.settings.auth_session_cookie_name,
+        value=session_id,
+        httponly=True,
+        max_age=max_age,
+        samesite="lax",
+        secure=False,
+        path="/",
+    )
+    return session
+
+
+@router.get("/auth/session")
+def current_session(request: Request):
+    service = get_graph_service(request)
+    session_cookie = request.cookies.get(service.settings.auth_session_cookie_name)
+
+    try:
+        session = service.get_auth_session(session_cookie or "")
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    if not session:
+        unauthorized_response = JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "Authentication required."},
+        )
+        unauthorized_response.delete_cookie(
+            key=service.settings.auth_session_cookie_name,
+            path="/",
+            httponly=True,
+            samesite="lax",
+        )
+        return unauthorized_response
+
+    return session
+
+
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(request: Request, response: Response):
+    service = get_graph_service(request)
+    session_cookie = request.cookies.get(service.settings.auth_session_cookie_name)
+
+    if session_cookie:
+        try:
+            service.revoke_auth_session(session_cookie)
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    response.delete_cookie(
+        key=service.settings.auth_session_cookie_name,
+        path="/",
+        httponly=True,
+        samesite="lax",
+    )
+
+
+@router.post("/records", status_code=status.HTTP_201_CREATED)
+def create_record(request: Request, payload: RecordCreateRequest):
+    service, session = _require_curator_session(request)
+
+    try:
+        return service.create_record(
+            payload=payload,
+            editor_display_name=session.user.display_name,
+        )
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"Unknown related person: {error.args[0]}") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.get("/workspace/summary")

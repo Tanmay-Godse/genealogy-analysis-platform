@@ -111,3 +111,48 @@ class ImportJobSummary(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     error: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+    remember_device: bool = False
+
+
+class AuthUserSummary(BaseModel):
+    user_id: str
+    email: str
+    display_name: str
+    role: Role
+    created_at: str | None = None
+    last_login_at: str | None = None
+
+
+class AuthSessionSummary(BaseModel):
+    user: AuthUserSummary
+    remember_device: bool
+    created_at: str | None = None
+    expires_at: str
+
+
+class RecordCreateRequest(BaseModel):
+    first_name: str
+    last_name: str
+    branch: str
+    birth_label: str | None = None
+    birth_place: str | None = None
+    death_label: str | None = None
+    death_place: str | None = None
+    is_living: bool = False
+    summary: str = ""
+    notes: str | None = None
+    father_id: str | None = None
+    mother_id: str | None = None
+    partner_id: str | None = None
+
+
+class RecordCreateResult(BaseModel):
+    workspace_id: str
+    graph_version: str
+    person: PersonSummary
+    relationships: list[RelationshipSummary] = Field(default_factory=list)

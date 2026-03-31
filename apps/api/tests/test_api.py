@@ -27,9 +27,9 @@ def test_workspace_summary_counts():
 
         assert response.status_code == 200
         payload = response.json()
-        assert payload["people_count"] == 7
+        assert payload["people_count"] == 8
         assert payload["living_people_count"] == 5
-        assert payload["relationship_count"] == 9
+        assert payload["relationship_count"] == 11
 
 
 def test_kinship_returns_path_and_evidence():

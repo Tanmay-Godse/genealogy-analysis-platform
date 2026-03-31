@@ -1,0 +1,579 @@
+.page {
+  --surface: #fbf9f4;
+  --surface-low: #f5f3ee;
+  --surface-high: #eae8e3;
+  --surface-highest: #e4e2dd;
+  --primary: #041627;
+  --primary-soft: #1a2b3c;
+  --secondary: #476558;
+  --secondary-soft: #c9ead9;
+  --text: #1b1c19;
+  --muted: #5f646d;
+  --outline: rgba(116, 119, 125, 0.24);
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(201, 234, 217, 0.48), transparent 28%),
+    linear-gradient(180deg, #fbf9f4 0%, #f3f0ea 100%);
+  color: var(--text);
+}
+
+.page *,
+.page *::before,
+.page *::after {
+  box-sizing: border-box;
+}
+
+.topBar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: rgba(251, 249, 244, 0.86);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(196, 198, 205, 0.35);
+}
+
+.topBrandRow,
+.topActions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.topBrand {
+  color: var(--primary);
+  font-family: var(--record-font-serif);
+  font-size: 1.45rem;
+  font-style: italic;
+  font-weight: 800;
+}
+
+.topBrandSubtle {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.topLink {
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.topLink:hover {
+  color: var(--primary);
+}
+
+.topAvatar {
+  width: 2.3rem;
+  height: 2.3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-highest);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 16rem minmax(0, 1fr);
+  min-height: calc(100vh - 4.5rem);
+}
+
+.sidebar {
+  border-right: 1px solid rgba(196, 198, 205, 0.25);
+  background: rgba(240, 238, 233, 0.76);
+  padding: 1.5rem 1rem;
+}
+
+.sidebarCard,
+.sidebarHint {
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 20px 40px rgba(26, 43, 60, 0.06);
+  padding: 1rem;
+}
+
+.sidebarLabel {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.sidebarTitle {
+  margin: 0.4rem 0 0;
+  color: var(--primary);
+  font-family: var(--record-font-serif);
+  font-size: 1.2rem;
+}
+
+.sidebarText,
+.sidebarHint p {
+  margin: 0.6rem 0 0;
+  color: #44474c;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.sidebarNav {
+  display: grid;
+  gap: 0.45rem;
+  margin: 1rem 0;
+}
+
+.sidebarLink {
+  border-radius: 0.95rem;
+  color: var(--muted);
+  padding: 0.85rem 0.95rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.sidebarLink:hover {
+  transform: translateX(2px);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--primary);
+}
+
+.sidebarLinkActive {
+  background: rgba(71, 101, 88, 0.12);
+  color: var(--secondary);
+}
+
+.sidebarHint {
+  margin-top: 1rem;
+}
+
+.sidebarHint h3 {
+  margin: 0;
+  color: var(--primary);
+  font-family: var(--record-font-serif);
+  font-size: 1rem;
+}
+
+.canvas {
+  padding: 2rem;
+}
+
+.headerRow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  color: var(--primary);
+  font-family: var(--record-font-serif);
+  font-size: clamp(2.3rem, 4vw, 3.4rem);
+  line-height: 1.04;
+}
+
+.subtitle {
+  max-width: 52rem;
+  margin: 0.8rem 0 0;
+  color: #44474c;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.headerButtons {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.cancelButton,
+.saveButton,
+.selectedRelation button {
+  border: 0;
+  border-radius: 0.95rem;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 180ms ease, background-color 180ms ease, opacity 180ms ease;
+}
+
+.cancelButton {
+  background: transparent;
+  color: var(--primary);
+  padding: 0.85rem 1.2rem;
+  font-weight: 700;
+}
+
+.cancelButton:hover,
+.saveButton:hover,
+.selectedRelation button:hover,
+.searchResult:hover {
+  transform: translateY(-1px);
+}
+
+.saveButton {
+  background: var(--primary);
+  color: white;
+  padding: 0.95rem 1.4rem;
+  font-weight: 800;
+  box-shadow: 0 18px 30px rgba(4, 22, 39, 0.18);
+}
+
+.saveButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.noticeRow {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.noticeBadge,
+.errorBadge {
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 0.75rem 1rem;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.noticeBadge {
+  background: rgba(71, 101, 88, 0.1);
+  color: #304d40;
+}
+
+.errorBadge {
+  background: rgba(255, 218, 214, 0.96);
+  color: #93000a;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(18rem, 24rem);
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  align-items: start;
+}
+
+.primaryColumn,
+.secondaryColumn {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.card,
+.sideCard,
+.relationCard {
+  border-radius: 1.35rem;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--outline);
+  box-shadow: 0 24px 54px rgba(26, 43, 60, 0.06);
+}
+
+.card,
+.sideCard {
+  padding: 1.35rem;
+}
+
+.cardHeader h2,
+.sideCard h3,
+.relationHeader h4 {
+  margin: 0;
+  color: var(--primary);
+  font-family: var(--record-font-serif);
+}
+
+.cardHeader p,
+.relationHeader p,
+.curatorMeta {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.2rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.fieldFull {
+  margin-top: 1rem;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 1rem;
+  background: var(--surface-low);
+  color: var(--text);
+  padding: 0.92rem 1rem;
+  font: inherit;
+  line-height: 1.45;
+  outline: none;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: rgba(71, 101, 88, 0.28);
+  background: white;
+  box-shadow: 0 0 0 3px rgba(201, 234, 217, 0.55);
+}
+
+.field input:disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.relationshipGrid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.2rem;
+}
+
+.relationCard {
+  padding: 1rem;
+}
+
+.relationHeader p {
+  margin-bottom: 1rem;
+}
+
+.selectedRelation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.8rem;
+  border-radius: 1rem;
+  background: rgba(201, 234, 217, 0.48);
+  padding: 0.85rem 0.95rem;
+}
+
+.selectedRelation strong,
+.searchResult strong {
+  display: block;
+  color: var(--primary);
+}
+
+.selectedRelation span,
+.searchResult span,
+.searchResult small,
+.previewFacts dd {
+  color: #44474c;
+}
+
+.selectedRelation button {
+  background: white;
+  color: var(--primary);
+  padding: 0.65rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.searchResults {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+
+.searchResult {
+  border: 1px solid rgba(196, 198, 205, 0.3);
+  border-radius: 1rem;
+  background: white;
+  padding: 0.85rem 0.95rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease, transform 180ms ease;
+}
+
+.searchResult small {
+  display: block;
+  margin-top: 0.28rem;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.searchResult:hover {
+  border-color: rgba(71, 101, 88, 0.28);
+}
+
+.checkList {
+  margin: 0.9rem 0 0;
+  padding-left: 1.1rem;
+  color: #44474c;
+  display: grid;
+  gap: 0.6rem;
+  line-height: 1.55;
+}
+
+.previewName {
+  margin-top: 0.9rem;
+  color: var(--primary);
+  font-family: var(--record-font-serif);
+  font-size: 1.45rem;
+  line-height: 1.2;
+}
+
+.previewBadgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+}
+
+.previewBadge {
+  border-radius: 999px;
+  background: rgba(4, 22, 39, 0.06);
+  color: var(--primary);
+  padding: 0.45rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.previewFacts {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+}
+
+.previewFacts div {
+  border-radius: 1rem;
+  background: var(--surface-low);
+  padding: 0.8rem 0.9rem;
+}
+
+.previewFacts dt {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.previewFacts dd {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.curatorName {
+  margin: 0.9rem 0 0;
+  color: var(--primary);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+@media (max-width: 1120px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid rgba(196, 198, 205, 0.25);
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .topBar,
+  .canvas {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .topBar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .topActions,
+  .headerRow,
+  .headerButtons {
+    width: 100%;
+  }
+
+  .topActions,
+  .headerButtons {
+    justify-content: space-between;
+  }
+
+  .headerRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .fieldGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .topBrandRow,
+  .topActions {
+    flex-wrap: wrap;
+  }
+
+  .saveButton,
+  .cancelButton {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .selectedRelation {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

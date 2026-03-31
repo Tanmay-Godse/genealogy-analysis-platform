@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-import json
-import logging
-from datetime import UTC, datetime
-from pathlib import Path
-import socket
-from uuid import uuid4
+import base64
 from collections import deque
+import json
+import hmac
+import hashlib
+import logging
+import secrets
+import socket
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import uuid4
 from typing import Any
 from urllib.parse import urlparse
 
@@ -20,6 +24,8 @@ from redis import Redis
 
 from app.config import Settings
 from app.models import (
+    AuthSessionSummary,
+    AuthUserSummary,
     EvidenceReference,
     GraphChunk,
     ImportJobSummary,
@@ -29,6 +35,8 @@ from app.models import (
     LineageDirection,
     LineageResult,
     PersonSummary,
+    RecordCreateRequest,
+    RecordCreateResult,
     RelationshipSummary,
     Role,
     SearchResult,
@@ -79,6 +87,24 @@ PERSONS: dict[str, PersonRecord] = {
                 source_id="s1",
                 title="1960 census extract",
                 note="Household confirms spouse and children at the Hart farmstead.",
+            ),
+        ),
+    ),
+    "p8": PersonRecord(
+        id="p8",
+        name="Samuel Hart",
+        branch="Hart ancestral line",
+        birth_label="Born 1930",
+        death_label="Died 2009",
+        is_living=False,
+        summary="Patriarch recorded in parish ledgers and late-century land transfer documents.",
+        coordinate=(-3.2, 2.5, 1.4),
+        aliases=("Samuel James Hart",),
+        evidence=(
+            EvidenceReference(
+                source_id="s7",
+                title="1954 parish household register",
+                note="Lists Samuel Hart with spouse Grace Hart and their son Marcus.",
             ),
         ),
     ),
@@ -196,10 +222,10 @@ RELATIONSHIPS: tuple[RelationshipRecord, ...] = (
     RelationshipRecord(
         id="r1",
         source_id="p1",
-        target_id="p2",
-        kind="parent_of",
-        label="parent of",
-        evidence=PERSONS["p2"].evidence[0],
+        target_id="p8",
+        kind="partner_of",
+        label="partner of",
+        evidence=PERSONS["p8"].evidence[0],
     ),
     RelationshipRecord(
         id="r2",
@@ -211,6 +237,22 @@ RELATIONSHIPS: tuple[RelationshipRecord, ...] = (
     ),
     RelationshipRecord(
         id="r3",
+        source_id="p8",
+        target_id="p3",
+        kind="parent_of",
+        label="parent of",
+        evidence=PERSONS["p3"].evidence[0],
+    ),
+    RelationshipRecord(
+        id="r4",
+        source_id="p2",
+        target_id="p3",
+        kind="partner_of",
+        label="partner of",
+        evidence=PERSONS["p2"].evidence[0],
+    ),
+    RelationshipRecord(
+        id="r5",
         source_id="p2",
         target_id="p4",
         kind="parent_of",
@@ -218,7 +260,7 @@ RELATIONSHIPS: tuple[RelationshipRecord, ...] = (
         evidence=PERSONS["p4"].evidence[0],
     ),
     RelationshipRecord(
-        id="r4",
+        id="r6",
         source_id="p3",
         target_id="p4",
         kind="parent_of",
@@ -226,7 +268,7 @@ RELATIONSHIPS: tuple[RelationshipRecord, ...] = (
         evidence=PERSONS["p4"].evidence[0],
     ),
     RelationshipRecord(
-        id="r5",
+        id="r7",
         source_id="p4",
         target_id="p5",
         kind="partner_of",
@@ -234,7 +276,7 @@ RELATIONSHIPS: tuple[RelationshipRecord, ...] = (
         evidence=PERSONS["p5"].evidence[0],
     ),
     RelationshipRecord(
-        id="r6",
+        id="r8",
         source_id="p4",
         target_id="p6",
         kind="parent_of",
@@ -242,7 +284,7 @@ RELATIONSHIPS: tuple[RelationshipRecord, ...] = (
         evidence=PERSONS["p6"].evidence[0],
     ),
     RelationshipRecord(
-        id="r7",
+        id="r9",
         source_id="p5",
         target_id="p6",
         kind="parent_of",
@@ -250,7 +292,7 @@ RELATIONSHIPS: tuple[RelationshipRecord, ...] = (
         evidence=PERSONS["p6"].evidence[0],
     ),
     RelationshipRecord(
-        id="r8",
+        id="r10",
         source_id="p4",
         target_id="p7",
         kind="parent_of",
@@ -258,7 +300,7 @@ RELATIONSHIPS: tuple[RelationshipRecord, ...] = (
         evidence=PERSONS["p7"].evidence[0],
     ),
     RelationshipRecord(
-        id="r9",
+        id="r11",
         source_id="p5",
         target_id="p7",
         kind="parent_of",
@@ -267,10 +309,10 @@ RELATIONSHIPS: tuple[RelationshipRecord, ...] = (
     ),
 )
 
-GRAPH_VERSION = "seed-v1"
+GRAPH_VERSION = "seed-v2"
 WORKSPACE_ID = "pilot-family-workspace"
 DEFAULT_FOCUS_PERSON_ID = "p4"
-SOURCE_COUNT = 6
+SOURCE_COUNT = 7
 SEARCH_INDEX = "family-tree-people"
 
 
@@ -294,6 +336,8 @@ class GraphService:
             self._connect_opensearch()
             self._connect_minio()
             self._init_postgres_schema()
+            if self.service_health.get("postgres", {}).get("available") is True:
+                self._seed_bootstrap_auth_user()
             self._seed_connected_services()
         else:
             self.service_health["neo4j"] = {"available": False, "detail": "Bootstrap disabled."}
@@ -492,6 +536,369 @@ class GraphService:
 
         return self.get_import(import_id)
 
+    def create_record(
+        self,
+        payload: RecordCreateRequest,
+        editor_display_name: str | None = None,
+    ) -> RecordCreateResult:
+        if not self.neo4j_driver:
+            raise RuntimeError("Neo4j is required for manual record editing.")
+
+        first_name = payload.first_name.strip()
+        last_name = payload.last_name.strip()
+        branch = payload.branch.strip()
+        birth_label = _clean_optional_text(payload.birth_label)
+        birth_place = _clean_optional_text(payload.birth_place)
+        death_label = _clean_optional_text(payload.death_label)
+        death_place = _clean_optional_text(payload.death_place)
+        notes = _clean_optional_text(payload.notes)
+        father_id = _clean_optional_text(payload.father_id)
+        mother_id = _clean_optional_text(payload.mother_id)
+        partner_id = _clean_optional_text(payload.partner_id)
+
+        if not first_name:
+            raise ValueError("First name is required.")
+
+        if not last_name:
+            raise ValueError("Last name is required.")
+
+        if not branch:
+            raise ValueError("Branch is required.")
+
+        if payload.is_living and death_label:
+            raise ValueError("Living people cannot include a death label.")
+
+        if father_id and mother_id and father_id == mother_id:
+            raise ValueError("Father and mother must be different people.")
+
+        linked_ids = [person_id for person_id in [father_id, mother_id, partner_id] if person_id]
+        if len(linked_ids) != len(set(linked_ids)):
+            raise ValueError("Each linked relative must be a different person.")
+
+        display_name = f"{first_name} {last_name}".strip()
+        person_id = f"m-{uuid4().hex[:12]}"
+        graph_version = f"manual-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:6]}"
+        aliases = [display_name]
+        sortable_alias = f"{last_name}, {first_name}"
+        if sortable_alias != display_name:
+            aliases.append(sortable_alias)
+        evidence_source_id = f"manual-{person_id}"
+        evidence_title = "Manual curator entry"
+        evidence_note = _build_manual_person_evidence_note(
+            display_name=display_name,
+            birth_place=birth_place,
+            death_place=death_place,
+            editor_display_name=editor_display_name,
+        )
+        summary = _build_manual_person_summary(
+            display_name=display_name,
+            summary=payload.summary,
+            birth_place=birth_place,
+            death_place=death_place,
+            notes=notes,
+        )
+
+        relationships: list[RelationshipSummary] = []
+
+        with self.neo4j_driver.session(database="neo4j") as session:
+            with session.begin_transaction() as transaction:
+                if linked_ids:
+                    record = transaction.run(
+                        """
+                        MATCH (p:Person {workspaceId: $workspace_id})
+                        WHERE p.id IN $person_ids
+                        RETURN collect(p.id) AS person_ids
+                        """,
+                        workspace_id=WORKSPACE_ID,
+                        person_ids=linked_ids,
+                    ).single()
+                    found_ids = set(record["person_ids"] if record else [])
+                    missing_ids = [person_id for person_id in linked_ids if person_id not in found_ids]
+                    if missing_ids:
+                        raise KeyError(missing_ids[0])
+
+                transaction.run(
+                    """
+                    MERGE (w:Workspace {id: $workspace_id})
+                    ON CREATE SET w.defaultFocusPersonId = $default_focus_person_id,
+                                  w.sourceCount = 0
+                    SET w.graphVersion = $graph_version,
+                        w.defaultFocusPersonId = coalesce(w.defaultFocusPersonId, $default_focus_person_id),
+                        w.sourceCount = coalesce(w.sourceCount, 0) + 1
+                    """,
+                    workspace_id=WORKSPACE_ID,
+                    default_focus_person_id=person_id,
+                    graph_version=graph_version,
+                )
+
+                transaction.run(
+                    """
+                    CREATE (p:Person {
+                        id: $id,
+                        workspaceId: $workspace_id,
+                        name: $name,
+                        branch: $branch,
+                        birthLabel: $birth_label,
+                        birthPlace: $birth_place,
+                        deathLabel: $death_label,
+                        deathPlace: $death_place,
+                        isLiving: $is_living,
+                        summary: $summary,
+                        notes: $notes,
+                        x: 0.0,
+                        y: 0.0,
+                        z: 0.0,
+                        aliases: $aliases,
+                        evidenceSourceId: $evidence_source_id,
+                        evidenceTitle: $evidence_title,
+                        evidenceNote: $evidence_note,
+                        createdAt: datetime(),
+                        updatedAt: datetime()
+                    })
+                    """,
+                    id=person_id,
+                    workspace_id=WORKSPACE_ID,
+                    name=display_name,
+                    branch=branch,
+                    birth_label=birth_label,
+                    birth_place=birth_place,
+                    death_label=death_label,
+                    death_place=death_place,
+                    is_living=payload.is_living,
+                    summary=summary,
+                    notes=notes,
+                    aliases=aliases,
+                    evidence_source_id=evidence_source_id,
+                    evidence_title=evidence_title,
+                    evidence_note=evidence_note,
+                )
+
+                if father_id:
+                    relationships.append(
+                        self._create_record_relationship(
+                            transaction=transaction,
+                            source_id=father_id,
+                            target_id=person_id,
+                            kind="parent_of",
+                            label="parent of",
+                            evidence_note=_build_manual_relationship_note(
+                                subject_name=display_name,
+                                relationship_label="father link",
+                                editor_display_name=editor_display_name,
+                            ),
+                        )
+                    )
+
+                if mother_id:
+                    relationships.append(
+                        self._create_record_relationship(
+                            transaction=transaction,
+                            source_id=mother_id,
+                            target_id=person_id,
+                            kind="parent_of",
+                            label="parent of",
+                            evidence_note=_build_manual_relationship_note(
+                                subject_name=display_name,
+                                relationship_label="mother link",
+                                editor_display_name=editor_display_name,
+                            ),
+                        )
+                    )
+
+                if partner_id:
+                    partner_source_id, partner_target_id = sorted([person_id, partner_id])
+                    relationships.append(
+                        self._create_record_relationship(
+                            transaction=transaction,
+                            source_id=partner_source_id,
+                            target_id=partner_target_id,
+                            kind="partner_of",
+                            label="partner of",
+                            evidence_note=_build_manual_relationship_note(
+                                subject_name=display_name,
+                                relationship_label="partner link",
+                                editor_display_name=editor_display_name,
+                            ),
+                        )
+                    )
+
+                transaction.commit()
+
+        self.graph_version = graph_version
+        self.graph_backend = "neo4j"
+        self._sync_opensearch_from_graph()
+        self._invalidate_summary_cache()
+
+        person = self._get_person_from_neo4j(person_id, Role.OWNER)
+        if not person:
+            raise RuntimeError("Created person could not be read back from the graph.")
+
+        return RecordCreateResult(
+            workspace_id=WORKSPACE_ID,
+            graph_version=graph_version,
+            person=person,
+            relationships=relationships,
+        )
+
+    def authenticate_user(
+        self,
+        email: str,
+        password: str,
+        remember_device: bool = False,
+    ) -> tuple[str, AuthSessionSummary]:
+        self._require_postgres()
+
+        normalized_email = self._normalize_email(email)
+        if not normalized_email or not password:
+            raise ValueError("Email and password are required.")
+
+        session_id = secrets.token_urlsafe(32)
+        expires_at = datetime.now(UTC) + timedelta(
+            seconds=self.session_ttl_seconds(remember_device=remember_device)
+        )
+
+        with self._postgres_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT user_id, password_hash
+                    FROM auth_users
+                    WHERE email = %s
+                    """,
+                    (normalized_email,),
+                )
+                user_row = cursor.fetchone()
+
+                if not user_row or not self._verify_password(password, user_row[1]):
+                    raise ValueError("Invalid email or password.")
+
+                cursor.execute(
+                    """
+                    INSERT INTO auth_sessions (session_id, user_id, remember_device, expires_at)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (session_id, user_row[0], remember_device, expires_at),
+                )
+                cursor.execute(
+                    """
+                    UPDATE auth_users
+                    SET last_login_at = NOW(),
+                        updated_at = NOW()
+                    WHERE user_id = %s
+                    """,
+                    (user_row[0],),
+                )
+                cursor.execute(
+                    """
+                    SELECT s.session_id, s.remember_device, s.created_at, s.expires_at,
+                           u.user_id, u.email, u.display_name, u.role, u.created_at, u.last_login_at
+                    FROM auth_sessions s
+                    JOIN auth_users u ON u.user_id = s.user_id
+                    WHERE s.session_id = %s
+                    """,
+                    (session_id,),
+                )
+                session_row = cursor.fetchone()
+            connection.commit()
+
+        if not session_row:
+            raise RuntimeError("Authentication session could not be created.")
+
+        return session_id, self._auth_session_row_to_summary(session_row)
+
+    def get_auth_session(self, session_id: str) -> AuthSessionSummary | None:
+        self._require_postgres()
+        if not session_id:
+            return None
+
+        with self._postgres_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT s.session_id, s.remember_device, s.created_at, s.expires_at,
+                           u.user_id, u.email, u.display_name, u.role, u.created_at, u.last_login_at
+                    FROM auth_sessions s
+                    JOIN auth_users u ON u.user_id = s.user_id
+                    WHERE s.session_id = %s
+                      AND s.revoked_at IS NULL
+                      AND s.expires_at > NOW()
+                    """,
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+
+        return self._auth_session_row_to_summary(row) if row else None
+
+    def revoke_auth_session(self, session_id: str) -> None:
+        self._require_postgres()
+        if not session_id:
+            return
+
+        with self._postgres_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE auth_sessions
+                    SET revoked_at = NOW()
+                    WHERE session_id = %s
+                    """,
+                    (session_id,),
+                )
+            connection.commit()
+
+    def session_ttl_seconds(self, remember_device: bool) -> int:
+        if remember_device:
+            return self.settings.auth_remember_device_days * 24 * 60 * 60
+        return self.settings.auth_session_ttl_hours * 60 * 60
+
+    def _create_record_relationship(
+        self,
+        transaction: Any,
+        source_id: str,
+        target_id: str,
+        kind: str,
+        label: str,
+        evidence_note: str,
+    ) -> RelationshipSummary:
+        relationship_id = f"rel-{kind.replace('_', '-')}-{uuid4().hex[:12]}"
+        relationship_type = "PARENT_OF" if kind == "parent_of" else "PARTNER_OF"
+
+        transaction.run(
+            f"""
+            MATCH (source:Person {{id: $source_id, workspaceId: $workspace_id}})
+            MATCH (target:Person {{id: $target_id, workspaceId: $workspace_id}})
+            CREATE (source)-[r:{relationship_type} {{
+                id: $id,
+                workspaceId: $workspace_id,
+                kind: $kind,
+                label: $label,
+                sourceId: $source_id,
+                targetId: $target_id,
+                evidenceSourceId: $evidence_source_id,
+                evidenceTitle: $evidence_title,
+                evidenceNote: $evidence_note,
+                createdAt: datetime()
+            }}]->(target)
+            """,
+            id=relationship_id,
+            workspace_id=WORKSPACE_ID,
+            kind=kind,
+            label=label,
+            source_id=source_id,
+            target_id=target_id,
+            evidence_source_id=f"manual-{relationship_id}",
+            evidence_title="Manual relationship link",
+            evidence_note=evidence_note,
+        )
+
+        return RelationshipSummary(
+            id=relationship_id,
+            source_id=source_id,
+            target_id=target_id,
+            kind=kind,
+            label=label,
+        )
+
     def _connect_neo4j(self) -> None:
         try:
             driver = GraphDatabase.driver(
@@ -585,13 +992,39 @@ class GraphService:
                         )
                         """
                     )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS auth_users (
+                            user_id TEXT PRIMARY KEY,
+                            email TEXT NOT NULL UNIQUE,
+                            display_name TEXT NOT NULL,
+                            role TEXT NOT NULL,
+                            password_hash TEXT NOT NULL,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            last_login_at TIMESTAMPTZ
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS auth_sessions (
+                            session_id TEXT PRIMARY KEY,
+                            user_id TEXT NOT NULL REFERENCES auth_users(user_id) ON DELETE CASCADE,
+                            remember_device BOOLEAN NOT NULL DEFAULT FALSE,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            expires_at TIMESTAMPTZ NOT NULL,
+                            revoked_at TIMESTAMPTZ
+                        )
+                        """
+                    )
                 connection.commit()
             self.service_health["postgres"] = {
                 "available": True,
                 "detail": f"{self.settings.postgres_host}:{self.settings.postgres_port}",
             }
         except Exception as error:  # pragma: no cover - network/system dependent
-            logger.warning("PostgreSQL unavailable, import metadata will be disabled: %s", error)
+            logger.warning("PostgreSQL unavailable, persistent application data will be disabled: %s", error)
             self.service_health["postgres"] = {"available": False, "detail": str(error)}
 
     def _postgres_connection(self):
@@ -602,6 +1035,32 @@ class GraphService:
             user=self.settings.postgres_user,
             password=self.settings.postgres_password,
         )
+
+    def _seed_bootstrap_auth_user(self) -> None:
+        self._require_postgres()
+
+        email = self._normalize_email(self.settings.auth_bootstrap_email)
+        password = self.settings.auth_bootstrap_password
+        if not email or not password:
+            return
+
+        with self._postgres_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO auth_users (user_id, email, display_name, role, password_hash)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (email) DO NOTHING
+                    """,
+                    (
+                        uuid4().hex,
+                        email,
+                        self.settings.auth_bootstrap_display_name,
+                        self.settings.auth_bootstrap_role.value,
+                        self._hash_password(password),
+                    ),
+                )
+            connection.commit()
 
     def _load_workspace_state_from_neo4j(self) -> bool:
         with self.neo4j_driver.session(database="neo4j") as session:
@@ -695,7 +1154,7 @@ class GraphService:
 
     def _require_postgres(self) -> None:
         if self.service_health.get("postgres", {}).get("available") is not True:
-            raise RuntimeError("PostgreSQL is not available for import metadata.")
+            raise RuntimeError("PostgreSQL is not available for persistent application data.")
 
     def _require_import_dependencies(self) -> None:
         if not self.neo4j_driver:
@@ -764,16 +1223,59 @@ class GraphService:
             updated_at=row[9].isoformat() if row[9] else None,
         )
 
+    def _auth_session_row_to_summary(self, row: tuple[Any, ...]) -> AuthSessionSummary:
+        return AuthSessionSummary(
+            user=AuthUserSummary(
+                user_id=row[4],
+                email=row[5],
+                display_name=row[6],
+                role=Role(row[7]),
+                created_at=row[8].isoformat() if row[8] else None,
+                last_login_at=row[9].isoformat() if row[9] else None,
+            ),
+            remember_device=bool(row[1]),
+            created_at=row[2].isoformat() if row[2] else None,
+            expires_at=row[3].isoformat(),
+        )
+
+    def _normalize_email(self, email: str) -> str:
+        return email.strip().lower()
+
+    def _hash_password(self, password: str) -> str:
+        salt = secrets.token_bytes(16)
+        iterations = 600_000
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return "$".join(
+            (
+                "pbkdf2_sha256",
+                str(iterations),
+                base64.urlsafe_b64encode(salt).decode("ascii"),
+                base64.urlsafe_b64encode(digest).decode("ascii"),
+            )
+        )
+
+    def _verify_password(self, password: str, encoded_password: str) -> bool:
+        try:
+            algorithm, iterations_text, salt_text, digest_text = encoded_password.split("$", maxsplit=3)
+        except ValueError:
+            return False
+
+        if algorithm != "pbkdf2_sha256":
+            return False
+
+        salt = base64.urlsafe_b64decode(salt_text.encode("ascii"))
+        expected = base64.urlsafe_b64decode(digest_text.encode("ascii"))
+        actual = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt,
+            int(iterations_text),
+        )
+        return hmac.compare_digest(actual, expected)
+
     def _replace_workspace_graph(self, parsed: ParsedGedcomImport, graph_version: str) -> None:
+        self._clear_workspace_graph()
         with self.neo4j_driver.session(database="neo4j") as session:
-            session.run(
-                "MATCH ()-[r {workspaceId: $workspace_id}]->() DELETE r",
-                workspace_id=WORKSPACE_ID,
-            )
-            session.run(
-                "MATCH (p:Person {workspaceId: $workspace_id}) DETACH DELETE p",
-                workspace_id=WORKSPACE_ID,
-            )
             session.run(
                 """
                 MERGE (w:Workspace {id: $workspace_id})
@@ -850,6 +1352,21 @@ class GraphService:
                     evidence_note=relationship.evidence_note,
                 )
 
+    def _clear_workspace_graph(self) -> None:
+        with self.neo4j_driver.session(database="neo4j") as session:
+            session.run(
+                "MATCH ()-[r {workspaceId: $workspace_id}]->() DELETE r",
+                workspace_id=WORKSPACE_ID,
+            )
+            session.run(
+                "MATCH (p:Person {workspaceId: $workspace_id}) DETACH DELETE p",
+                workspace_id=WORKSPACE_ID,
+            )
+            session.run(
+                "MATCH (w:Workspace {id: $workspace_id}) DELETE w",
+                workspace_id=WORKSPACE_ID,
+            )
+
     def _invalidate_summary_cache(self) -> None:
         if self.redis_client:
             for key in self.redis_client.scan_iter(match="workspace-summary:*"):
@@ -859,7 +1376,13 @@ class GraphService:
         workspace_exists = False
         if self.neo4j_driver:
             workspace_exists = self._load_workspace_state_from_neo4j()
-            if not workspace_exists:
+            if workspace_exists and self.graph_version.startswith("seed-"):
+                if self.graph_version != self.settings.graph_version:
+                    self._clear_workspace_graph()
+                    self.graph_version = self.settings.graph_version
+                    self._seed_neo4j()
+            elif not workspace_exists:
+                self.graph_version = self.settings.graph_version
                 self._seed_neo4j()
                 workspace_exists = True
 
@@ -1501,3 +2024,63 @@ def _adjacent_relationships(person_id: str) -> list[RelationshipRecord]:
         for relationship in RELATIONSHIPS
         if relationship.source_id == person_id or relationship.target_id == person_id
     ]
+
+
+def _clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _build_manual_person_summary(
+    display_name: str,
+    summary: str,
+    birth_place: str | None,
+    death_place: str | None,
+    notes: str | None,
+) -> str:
+    sections: list[str] = []
+    if summary.strip():
+        sections.append(summary.strip())
+    else:
+        sections.append(f"Manual archive record created for {display_name}.")
+
+    if birth_place:
+        sections.append(f"Birthplace recorded as {birth_place}.")
+
+    if death_place:
+        sections.append(f"Death place recorded as {death_place}.")
+
+    if notes:
+        sections.append(notes)
+
+    return " ".join(sections)
+
+
+def _build_manual_person_evidence_note(
+    display_name: str,
+    birth_place: str | None,
+    death_place: str | None,
+    editor_display_name: str | None,
+) -> str:
+    fragments = [f"Manual record created for {display_name}."]
+    if editor_display_name:
+        fragments.append(f"Entered by {editor_display_name}.")
+    if birth_place:
+        fragments.append(f"Birthplace noted as {birth_place}.")
+    if death_place:
+        fragments.append(f"Death place noted as {death_place}.")
+    return " ".join(fragments)
+
+
+def _build_manual_relationship_note(
+    subject_name: str,
+    relationship_label: str,
+    editor_display_name: str | None,
+) -> str:
+    fragments = [f"Manual {relationship_label} recorded for {subject_name}."]
+    if editor_display_name:
+        fragments.append(f"Entered by {editor_display_name}.")
+    return " ".join(fragments)
