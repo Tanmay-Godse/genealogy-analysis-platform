@@ -12,6 +12,14 @@ micromamba activate family-tree
 The environment provides Python 3.12 and Node.js 20. The backend uses `uv`, and the frontend uses npm workspaces.
 Run `uv` from inside the micromamba environment with `uv pip install --system --python python ...` so it installs into the environment Python rather than provisioning a separate interpreter.
 
+Change into the repo root before using `make`:
+
+```bash
+cd /home/tanmay-godse/Family_Tree
+```
+
+If you are elsewhere on the machine, use `make -C /home/tanmay-godse/Family_Tree <target>`.
+
 ## Common commands
 
 ```bash
@@ -23,6 +31,8 @@ make test-api
 make lint-web
 make build-web
 ```
+
+The `Makefile` already wraps commands with `micromamba run -n family-tree ...`, so manual activation is convenient but not required for the `make` targets themselves.
 
 ## API endpoints
 

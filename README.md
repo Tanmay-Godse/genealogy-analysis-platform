@@ -28,7 +28,15 @@ This repository is currently not open source. All rights are reserved until a li
    micromamba activate family-tree
    ```
 
-3. Install dependencies:
+3. Move into the repository root:
+
+   ```bash
+   cd /home/tanmay-godse/Family_Tree
+   ```
+
+   All `make` commands below must be run from this directory, or by using `make -C /home/tanmay-godse/Family_Tree ...`.
+
+4. Install dependencies:
 
    ```bash
    make bootstrap
@@ -36,25 +44,27 @@ This repository is currently not open source. All rights are reserved until a li
 
    `uv` is expected to install into the activated `family-tree` micromamba environment with `uv pip install --system --python python ...`, not against a separate managed Python.
 
-4. Start the local data stack:
+   The `Makefile` already uses `micromamba run -n family-tree ...`, so activating the environment is helpful but not strictly required for the `make` commands themselves.
+
+5. Start the local data stack:
 
    ```bash
    sudo docker compose -f /home/tanmay-godse/Family_Tree/infra/docker-compose.yml up -d
    ```
 
-5. Start the backend:
+6. Start the backend:
 
    ```bash
    make dev-api
    ```
 
-6. Start the frontend in another terminal:
+7. Start the frontend in another terminal:
 
    ```bash
    make dev-web
    ```
 
-7. Open `http://localhost:3000`.
+8. Open `http://localhost:3000`.
    The web app now redirects through `http://localhost:3000/login` and uses a Postgres-backed bootstrap curator account:
 
    - email: `curator@livingarchive.org`
@@ -63,7 +73,7 @@ This repository is currently not open source. All rights are reserved until a li
    Visit `http://localhost:3000/admin/imports` after signing in to upload a GEDCOM file into the local pilot workspace.
    Visit `http://localhost:3000/admin/records/new` after signing in to add a family member manually through the guided editor. Saving the form creates the person and optional parent or partner links directly in Neo4j so the tree can render the new record immediately.
 
-8. Inspect runtime health if needed:
+9. Inspect runtime health if needed:
 
    ```bash
    curl http://127.0.0.1:8000/healthz
