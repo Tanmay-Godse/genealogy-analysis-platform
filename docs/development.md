@@ -15,16 +15,16 @@ Run `uv` from inside the micromamba environment with `uv pip install --system --
 Change into the repo root before using `make`:
 
 ```bash
-cd /home/tanmay-godse/Family_Tree
+cd /path/to/repo
 ```
 
-If you are elsewhere on the machine, use `make -C /home/tanmay-godse/Family_Tree <target>`.
+If you are elsewhere on the machine, use `make -C /path/to/repo <target>`.
 
 ## Common commands
 
 ```bash
 make bootstrap
-sudo docker compose -f /home/tanmay-godse/Family_Tree/infra/docker-compose.yml up -d
+sudo docker compose -f ./infra/docker-compose.yml up -d
 make dev-api
 make dev-web
 make test-api

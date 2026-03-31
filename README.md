@@ -31,10 +31,10 @@ This repository is currently not open source. All rights are reserved until a li
 3. Move into the repository root:
 
    ```bash
-   cd /home/tanmay-godse/Family_Tree
+   cd /path/to/repo
    ```
 
-   All `make` commands below must be run from this directory, or by using `make -C /home/tanmay-godse/Family_Tree ...`.
+   All `make` commands below must be run from this directory, or by using `make -C /path/to/repo ...`.
 
 4. Install dependencies:
 
@@ -49,7 +49,7 @@ This repository is currently not open source. All rights are reserved until a li
 5. Start the local data stack:
 
    ```bash
-   sudo docker compose -f /home/tanmay-godse/Family_Tree/infra/docker-compose.yml up -d
+   sudo docker compose -f ./infra/docker-compose.yml up -d
    ```
 
 6. Start the backend:
