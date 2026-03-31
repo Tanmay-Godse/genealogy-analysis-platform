@@ -14,3 +14,12 @@ python -m uvicorn app.main:app --reload
 ```bash
 curl http://127.0.0.1:8000/healthz
 ```
+
+## Import a GEDCOM
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/imports/gedcom \
+  -F file=@/home/tanmay-godse/Family_Tree/docs/examples/pilot-family.ged
+```
+
+The raw file is archived in MinIO, the import job is recorded in PostgreSQL, and the workspace graph is rebuilt in Neo4j and OpenSearch.

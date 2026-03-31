@@ -32,9 +32,23 @@ make build-web
 - `GET /api/v1/graph/subgraph?person_id=...&depth=...`
 - `GET /api/v1/graph/lineage?person_id=...&direction=ancestors|descendants&depth=...`
 - `GET /api/v1/graph/kinship?source_id=...&target_id=...`
+- `GET /api/v1/imports`
+- `GET /api/v1/imports/{import_id}`
+- `POST /api/v1/imports/gedcom`
 - `POST /graphql`
 
 `/healthz` reports the active graph backend and service reachability for Neo4j, Redis, OpenSearch, PostgreSQL, and MinIO.
+
+## GEDCOM import walkthrough
+
+Use the bundled sample at `docs/examples/pilot-family.ged` or upload your own `.ged` file from `http://localhost:3000/admin/imports`.
+
+The import flow currently does four things in one request:
+
+- stores the raw GEDCOM in MinIO
+- records import metadata and summary counts in PostgreSQL
+- replaces the pilot workspace graph in Neo4j
+- refreshes the OpenSearch people index for the active workspace
 
 ## Frontend environment
 
@@ -45,5 +59,6 @@ Copy `.env.example` values into your shell or `.env.local` if needed:
 ## Runtime behavior
 
 - When Docker services are available, the API seeds Neo4j and OpenSearch at startup and warms workspace summary cache in Redis.
+- If a GEDCOM import already exists in Neo4j, the API reuses that workspace graph on startup instead of overwriting it with the seed dataset.
 - If one of those services is unavailable, the API falls back to the in-memory seed dataset instead of crashing local development.
 - Privacy logic still belongs in the API layer, not in the UI.

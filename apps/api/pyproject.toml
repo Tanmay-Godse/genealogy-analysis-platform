@@ -5,11 +5,13 @@ description = "FastAPI + GraphQL backend for the genealogy analysis pilot."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "boto3>=1.42.79,<2",
   "fastapi>=0.135.2,<0.136",
   "httpx>=0.28,<0.29",
   "neo4j>=5.28.3,<6",
   "opensearch-py>=3.1.0,<4",
   "pydantic-settings>=2.11,<3",
+  "psycopg[binary]>=3.2.10,<3.3",
   "pytest>=8.3,<9",
   "redis>=7.4.0,<8",
   "strawberry-graphql[fastapi]>=0.312.2,<0.313",

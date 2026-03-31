@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { startTransition, useDeferredValue, useEffect, useState } from "react";
 
 import type {
@@ -194,6 +195,9 @@ export default function HomePage() {
             swap between owner and viewer perspectives, and inspect the evidence that supports each
             connection.
           </p>
+          <Link href="/admin/imports" className="heroLink">
+            Open import console
+          </Link>
         </div>
         <div className="heroRail">
           <div className="statusBadge">{statusMessage}</div>

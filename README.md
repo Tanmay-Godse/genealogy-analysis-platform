@@ -9,7 +9,7 @@ This repository is currently not open source. All rights are reserved until a li
 ## What is in this repo
 
 - `apps/api`: FastAPI service with REST and GraphQL endpoints, service-backed graph runtime, and API tests.
-- `apps/web`: Next.js 16 application with a dashboard shell, GraphQL/REST integration, and a simple canonical 3D scene.
+- `apps/web`: Next.js 16 application with a dashboard shell, GraphQL/REST integration, a simple canonical 3D scene, and a GEDCOM import console.
 - `docs`: architecture notes, development guide, and an ADR for the initial repo shape.
 - `infra`: target deployment compose file for Neo4j, PostgreSQL, Redis, OpenSearch, and MinIO.
 - `.github`: CI workflow, CODEOWNERS, and PR template.
@@ -55,6 +55,7 @@ This repository is currently not open source. All rights are reserved until a li
    ```
 
 7. Open `http://localhost:3000`.
+   Visit `http://localhost:3000/admin/imports` to upload a GEDCOM file into the local pilot workspace.
 
 8. Inspect runtime health if needed:
 
@@ -67,10 +68,15 @@ This repository is currently not open source. All rights are reserved until a li
 This first slice deliberately favors a real local-development path over breadth:
 
 - service-backed genealogy workspace with Neo4j/OpenSearch/Redis integration and seed fallback
-- REST endpoints for health, summary, search, subgraphs, lineage, and kinship
+- GEDCOM upload flow that archives raw files in MinIO, records import jobs in PostgreSQL, and rebuilds the graph in Neo4j plus OpenSearch
+- REST endpoints for health, imports, summary, search, subgraphs, lineage, and kinship
 - GraphQL queries for person lookup, search hydration, and workspace scene bootstrap
 - privacy masking for living people when viewed as a restricted viewer
-- a dashboard-style web UI with an orbitable scene and search-to-focus flow
+- a dashboard-style web UI with an orbitable scene, search-to-focus flow, and admin import console
+
+## Sample data
+
+Use the sample GEDCOM at `docs/examples/pilot-family.ged` to exercise the import flow locally.
 
 ## Repo standards
 
@@ -81,7 +87,7 @@ This first slice deliberately favors a real local-development path over breadth:
 
 ## Next milestones
 
-- add PostgreSQL-backed auth/audit persistence
-- add GEDCOM staging import flow and audit persistence
-- harden privacy, saved scenes, and merge-review workflows
+- add PostgreSQL-backed auth, workspace ownership, and edit flows
+- add merge review and deterministic identity-resolution tooling after imports
+- harden privacy, saved scenes, and evidence/source workflows
 - expand the scene from canonical mode to radial and local-force modes

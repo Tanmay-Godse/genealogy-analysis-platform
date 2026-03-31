@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     opensearch_password: str = Field(default="FamilyTreeDev@2026", alias="OPENSEARCH_PASSWORD")
     postgres_host: str = Field(default="127.0.0.1", alias="POSTGRES_HOST")
     postgres_port: int = Field(default=5432, alias="POSTGRES_PORT")
+    postgres_database: str = Field(default="family_tree", alias="POSTGRES_DATABASE")
+    postgres_user: str = Field(default="family_tree", alias="POSTGRES_USER")
+    postgres_password: str = Field(default="familytree-dev-password", alias="POSTGRES_PASSWORD")
+    minio_endpoint_url: str = Field(default="http://127.0.0.1:9000", alias="MINIO_ENDPOINT_URL")
+    minio_access_key: str = Field(default="familytree", alias="MINIO_ACCESS_KEY")
+    minio_secret_key: str = Field(default="familytree-dev-password", alias="MINIO_SECRET_KEY")
+    minio_bucket: str = Field(default="genealogy-imports", alias="MINIO_BUCKET")
     minio_health_url: str = Field(
         default="http://127.0.0.1:9000/minio/health/live",
         alias="MINIO_HEALTH_URL",

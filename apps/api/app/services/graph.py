@@ -2,21 +2,28 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
+from pathlib import Path
 import socket
+from uuid import uuid4
 from collections import deque
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+import boto3
 import httpx
 from neo4j import GraphDatabase
 from opensearchpy import OpenSearch, helpers as opensearch_helpers
+import psycopg
 from redis import Redis
 
 from app.config import Settings
 from app.models import (
     EvidenceReference,
     GraphChunk,
+    ImportJobSummary,
+    ImportStatus,
     KinshipPathStep,
     KinshipResult,
     LineageDirection,
@@ -27,6 +34,7 @@ from app.models import (
     SearchResult,
     WorkspaceSummary,
 )
+from app.services.gedcom import ParsedGedcomImport, parse_gedcom
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +280,9 @@ class GraphService:
         self.neo4j_driver = None
         self.redis_client = None
         self.opensearch_client = None
+        self.minio_client = None
         self.graph_backend = "seed"
+        self.graph_version = settings.graph_version
         self.service_health: dict[str, dict[str, str | bool]] = {}
 
     def bootstrap(self) -> None:
@@ -282,6 +292,8 @@ class GraphService:
             self._connect_neo4j()
             self._connect_redis()
             self._connect_opensearch()
+            self._connect_minio()
+            self._init_postgres_schema()
             self._seed_connected_services()
         else:
             self.service_health["neo4j"] = {"available": False, "detail": "Bootstrap disabled."}
@@ -290,9 +302,8 @@ class GraphService:
                 "available": False,
                 "detail": "Bootstrap disabled.",
             }
-
-        self._probe_postgres()
-        self._probe_minio()
+            self.service_health["postgres"] = {"available": False, "detail": "Bootstrap disabled."}
+            self.service_health["minio"] = {"available": False, "detail": "Bootstrap disabled."}
 
         self.graph_backend = "neo4j" if self.neo4j_driver else "seed"
         self._warm_summary_cache()
@@ -310,13 +321,13 @@ class GraphService:
     def health_snapshot(self) -> dict[str, Any]:
         return {
             "status": "ok",
-            "graphVersion": self.settings.graph_version,
+            "graphVersion": self.graph_version,
             "graphBackend": self.graph_backend,
             "services": self.service_health,
         }
 
     def workspace_summary(self) -> WorkspaceSummary:
-        cache_key = f"workspace-summary:{self.settings.graph_version}"
+        cache_key = f"workspace-summary:{self.graph_version}"
         if self.redis_client:
             cached_value = self.redis_client.get(cache_key)
             if cached_value:
@@ -380,6 +391,107 @@ class GraphService:
 
         return self._kinship_from_seed(source_id, target_id, role)
 
+    def list_imports(self) -> list[ImportJobSummary]:
+        self._require_postgres()
+        with self._postgres_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT import_id, filename, status, workspace_id, graph_version, storage_key,
+                           summary, error, created_at, updated_at
+                    FROM import_jobs
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                    """
+                )
+                rows = cursor.fetchall()
+
+        return [self._import_row_to_summary(row) for row in rows]
+
+    def get_import(self, import_id: str) -> ImportJobSummary | None:
+        self._require_postgres()
+        with self._postgres_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT import_id, filename, status, workspace_id, graph_version, storage_key,
+                           summary, error, created_at, updated_at
+                    FROM import_jobs
+                    WHERE import_id = %s
+                    """,
+                    (import_id,),
+                )
+                row = cursor.fetchone()
+
+        return self._import_row_to_summary(row) if row else None
+
+    def import_gedcom_file(self, filename: str, content: bytes) -> ImportJobSummary:
+        self._require_import_dependencies()
+
+        safe_filename = Path(filename).name or "upload.ged"
+        import_id = uuid4().hex[:12]
+        graph_version = f"import-{import_id}"
+        storage_key = f"imports/{import_id}/{safe_filename}"
+
+        self._write_import_job(
+            import_id=import_id,
+            filename=safe_filename,
+            storage_key=storage_key,
+            status=ImportStatus.PENDING,
+            graph_version=graph_version,
+            summary={},
+            error=None,
+        )
+
+        try:
+            self.minio_client.put_object(
+                Bucket=self.settings.minio_bucket,
+                Key=storage_key,
+                Body=content,
+                ContentType="text/plain",
+            )
+
+            parsed = parse_gedcom(content.decode("utf-8", errors="ignore"), safe_filename, import_id)
+            if not parsed.people:
+                raise ValueError("GEDCOM import did not produce any people records.")
+
+            self._replace_workspace_graph(parsed, graph_version)
+            self.graph_version = graph_version
+            self.graph_backend = "neo4j" if self.neo4j_driver else "seed"
+            self._sync_opensearch_from_graph()
+            self._invalidate_summary_cache()
+
+            summary = {
+                "people_count": parsed.people_count,
+                "family_count": parsed.family_count,
+                "relationship_count": len(parsed.relationships),
+                "living_people_count": parsed.living_people_count,
+                "focus_person_id": parsed.focus_person_id,
+            }
+
+            self._write_import_job(
+                import_id=import_id,
+                filename=safe_filename,
+                storage_key=storage_key,
+                status=ImportStatus.COMPLETED,
+                graph_version=graph_version,
+                summary=summary,
+                error=None,
+            )
+        except Exception as error:
+            self._write_import_job(
+                import_id=import_id,
+                filename=safe_filename,
+                storage_key=storage_key,
+                status=ImportStatus.FAILED,
+                graph_version=graph_version,
+                summary={},
+                error=str(error),
+            )
+            raise
+
+        return self.get_import(import_id)
+
     def _connect_neo4j(self) -> None:
         try:
             driver = GraphDatabase.driver(
@@ -434,12 +546,325 @@ class GraphService:
             logger.warning("OpenSearch unavailable, search will fall back to seed data: %s", error)
             self.service_health["opensearch"] = {"available": False, "detail": str(error)}
 
-    def _seed_connected_services(self) -> None:
-        if self.neo4j_driver:
-            self._seed_neo4j()
+    def _connect_minio(self) -> None:
+        try:
+            client = boto3.client(
+                "s3",
+                endpoint_url=self.settings.minio_endpoint_url,
+                aws_access_key_id=self.settings.minio_access_key,
+                aws_secret_access_key=self.settings.minio_secret_key,
+                region_name="us-east-1",
+            )
+            bucket_name = self.settings.minio_bucket
+            existing_buckets = {bucket["Name"] for bucket in client.list_buckets().get("Buckets", [])}
+            if bucket_name not in existing_buckets:
+                client.create_bucket(Bucket=bucket_name)
+            self.minio_client = client
+            self.service_health["minio"] = {"available": True, "detail": self.settings.minio_endpoint_url}
+        except Exception as error:  # pragma: no cover - network/system dependent
+            logger.warning("MinIO unavailable, GEDCOM archive storage will be disabled: %s", error)
+            self.service_health["minio"] = {"available": False, "detail": str(error)}
 
-        if self.opensearch_client:
-            self._seed_opensearch()
+    def _init_postgres_schema(self) -> None:
+        try:
+            with self._postgres_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS import_jobs (
+                            import_id TEXT PRIMARY KEY,
+                            workspace_id TEXT NOT NULL,
+                            filename TEXT NOT NULL,
+                            storage_key TEXT,
+                            status TEXT NOT NULL,
+                            graph_version TEXT NOT NULL,
+                            summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+                            error TEXT,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                connection.commit()
+            self.service_health["postgres"] = {
+                "available": True,
+                "detail": f"{self.settings.postgres_host}:{self.settings.postgres_port}",
+            }
+        except Exception as error:  # pragma: no cover - network/system dependent
+            logger.warning("PostgreSQL unavailable, import metadata will be disabled: %s", error)
+            self.service_health["postgres"] = {"available": False, "detail": str(error)}
+
+    def _postgres_connection(self):
+        return psycopg.connect(
+            host=self.settings.postgres_host,
+            port=self.settings.postgres_port,
+            dbname=self.settings.postgres_database,
+            user=self.settings.postgres_user,
+            password=self.settings.postgres_password,
+        )
+
+    def _load_workspace_state_from_neo4j(self) -> bool:
+        with self.neo4j_driver.session(database="neo4j") as session:
+            record = session.run(
+                """
+                MATCH (w:Workspace {id: $workspace_id})
+                RETURN w.graphVersion AS graph_version
+                """,
+                workspace_id=WORKSPACE_ID,
+            ).single()
+
+        if not record:
+            return False
+
+        self.graph_version = record["graph_version"] or self.settings.graph_version
+        return True
+
+    def _sync_opensearch_from_graph(self) -> None:
+        if not self.opensearch_client:
+            return
+
+        if not self.opensearch_client.indices.exists(index=SEARCH_INDEX):
+            self.opensearch_client.indices.create(
+                index=SEARCH_INDEX,
+                body={
+                    "mappings": {
+                        "properties": {
+                            "workspace_id": {"type": "keyword"},
+                            "display_name": {"type": "text"},
+                            "aliases": {"type": "text"},
+                            "branch": {"type": "keyword"},
+                            "summary": {"type": "text"},
+                            "is_living": {"type": "boolean"},
+                        }
+                    }
+                },
+            )
+
+        self.opensearch_client.delete_by_query(
+            index=SEARCH_INDEX,
+            body={"query": {"term": {"workspace_id": WORKSPACE_ID}}},
+            ignore=[404],
+            refresh=True,
+        )
+
+        actions: list[dict[str, Any]] = []
+        if self.neo4j_driver:
+            with self.neo4j_driver.session(database="neo4j") as session:
+                result = session.run(
+                    """
+                    MATCH (p:Person {workspaceId: $workspace_id})
+                    RETURN p
+                    """,
+                    workspace_id=WORKSPACE_ID,
+                )
+                for record in result:
+                    person = record["p"]
+                    actions.append(
+                        {
+                            "_index": SEARCH_INDEX,
+                            "_id": person["id"],
+                            "_source": {
+                                "workspace_id": WORKSPACE_ID,
+                                "display_name": person["name"],
+                                "aliases": person.get("aliases", [person["name"]]),
+                                "branch": person["branch"],
+                                "summary": person["summary"],
+                                "is_living": bool(person.get("isLiving")),
+                            },
+                        }
+                    )
+
+        if not actions:
+            for person in PERSONS.values():
+                actions.append(
+                    {
+                        "_index": SEARCH_INDEX,
+                        "_id": person.id,
+                        "_source": {
+                            "workspace_id": WORKSPACE_ID,
+                            "display_name": person.name,
+                            "aliases": list(person.aliases),
+                            "branch": person.branch,
+                            "summary": person.summary,
+                            "is_living": person.is_living,
+                        },
+                    }
+                )
+
+        opensearch_helpers.bulk(self.opensearch_client, actions, refresh=True)
+
+    def _require_postgres(self) -> None:
+        if self.service_health.get("postgres", {}).get("available") is not True:
+            raise RuntimeError("PostgreSQL is not available for import metadata.")
+
+    def _require_import_dependencies(self) -> None:
+        if not self.neo4j_driver:
+            raise RuntimeError("Neo4j is required for GEDCOM imports.")
+        if not self.minio_client:
+            raise RuntimeError("MinIO is required for GEDCOM archive storage.")
+        self._require_postgres()
+
+    def _write_import_job(
+        self,
+        import_id: str,
+        filename: str,
+        storage_key: str,
+        status: ImportStatus,
+        graph_version: str,
+        summary: dict[str, Any],
+        error: str | None,
+    ) -> None:
+        self._require_postgres()
+        with self._postgres_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO import_jobs (
+                        import_id, workspace_id, filename, storage_key, status, graph_version, summary, error
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                    ON CONFLICT (import_id) DO UPDATE
+                    SET filename = EXCLUDED.filename,
+                        storage_key = EXCLUDED.storage_key,
+                        status = EXCLUDED.status,
+                        graph_version = EXCLUDED.graph_version,
+                        summary = EXCLUDED.summary,
+                        error = EXCLUDED.error,
+                        updated_at = NOW()
+                    """,
+                    (
+                        import_id,
+                        WORKSPACE_ID,
+                        filename,
+                        storage_key,
+                        status.value,
+                        graph_version,
+                        json.dumps(summary),
+                        error,
+                    ),
+                )
+            connection.commit()
+
+    def _import_row_to_summary(self, row: tuple[Any, ...]) -> ImportJobSummary:
+        summary_data = row[6] or {}
+        return ImportJobSummary(
+            import_id=row[0],
+            filename=row[1],
+            status=ImportStatus(row[2]),
+            workspace_id=row[3],
+            graph_version=row[4],
+            storage_key=row[5],
+            people_count=summary_data.get("people_count", 0),
+            family_count=summary_data.get("family_count", 0),
+            relationship_count=summary_data.get("relationship_count", 0),
+            living_people_count=summary_data.get("living_people_count", 0),
+            focus_person_id=summary_data.get("focus_person_id"),
+            error=row[7],
+            created_at=row[8].isoformat() if row[8] else None,
+            updated_at=row[9].isoformat() if row[9] else None,
+        )
+
+    def _replace_workspace_graph(self, parsed: ParsedGedcomImport, graph_version: str) -> None:
+        with self.neo4j_driver.session(database="neo4j") as session:
+            session.run(
+                "MATCH ()-[r {workspaceId: $workspace_id}]->() DELETE r",
+                workspace_id=WORKSPACE_ID,
+            )
+            session.run(
+                "MATCH (p:Person {workspaceId: $workspace_id}) DETACH DELETE p",
+                workspace_id=WORKSPACE_ID,
+            )
+            session.run(
+                """
+                MERGE (w:Workspace {id: $workspace_id})
+                SET w.graphVersion = $graph_version,
+                    w.defaultFocusPersonId = $default_focus_person_id,
+                    w.sourceCount = $source_count
+                """,
+                workspace_id=WORKSPACE_ID,
+                graph_version=graph_version,
+                default_focus_person_id=parsed.focus_person_id,
+                source_count=1,
+            )
+
+            for person in parsed.people:
+                session.run(
+                    """
+                    MERGE (p:Person {id: $id})
+                    SET p.workspaceId = $workspace_id,
+                        p.name = $name,
+                        p.branch = $branch,
+                        p.birthLabel = $birth_label,
+                        p.deathLabel = $death_label,
+                        p.isLiving = $is_living,
+                        p.summary = $summary,
+                        p.x = $x,
+                        p.y = $y,
+                        p.z = $z,
+                        p.aliases = $aliases,
+                        p.evidenceSourceId = $evidence_source_id,
+                        p.evidenceTitle = $evidence_title,
+                        p.evidenceNote = $evidence_note
+                    """,
+                    id=person.id,
+                    workspace_id=WORKSPACE_ID,
+                    name=person.display_name,
+                    branch=person.branch,
+                    birth_label=person.birth_label,
+                    death_label=person.death_label,
+                    is_living=person.is_living,
+                    summary=person.summary,
+                    x=person.coordinate[0],
+                    y=person.coordinate[1],
+                    z=person.coordinate[2],
+                    aliases=list(person.aliases),
+                    evidence_source_id=person.evidence_source_id,
+                    evidence_title=person.evidence_title,
+                    evidence_note=person.evidence_note,
+                )
+
+            for relationship in parsed.relationships:
+                rel_type = "PARENT_OF" if relationship.kind == "parent_of" else "PARTNER_OF"
+                session.run(
+                    f"""
+                    MATCH (source:Person {{id: $source_id, workspaceId: $workspace_id}})
+                    MATCH (target:Person {{id: $target_id, workspaceId: $workspace_id}})
+                    MERGE (source)-[r:{rel_type} {{id: $id}}]->(target)
+                    SET r.workspaceId = $workspace_id,
+                        r.kind = $kind,
+                        r.label = $label,
+                        r.sourceId = $source_id,
+                        r.targetId = $target_id,
+                        r.evidenceSourceId = $evidence_source_id,
+                        r.evidenceTitle = $evidence_title,
+                        r.evidenceNote = $evidence_note
+                    """,
+                    id=relationship.id,
+                    workspace_id=WORKSPACE_ID,
+                    source_id=relationship.source_id,
+                    target_id=relationship.target_id,
+                    kind=relationship.kind,
+                    label=relationship.label,
+                    evidence_source_id=relationship.evidence_source_id,
+                    evidence_title=relationship.evidence_title,
+                    evidence_note=relationship.evidence_note,
+                )
+
+    def _invalidate_summary_cache(self) -> None:
+        if self.redis_client:
+            for key in self.redis_client.scan_iter(match="workspace-summary:*"):
+                self.redis_client.delete(key)
+
+    def _seed_connected_services(self) -> None:
+        workspace_exists = False
+        if self.neo4j_driver:
+            workspace_exists = self._load_workspace_state_from_neo4j()
+            if not workspace_exists:
+                self._seed_neo4j()
+                workspace_exists = True
+
+        if self.opensearch_client and workspace_exists:
+            self._sync_opensearch_from_graph()
 
     def _seed_neo4j(self) -> None:
         with self.neo4j_driver.session(database="neo4j") as session:
@@ -454,7 +879,7 @@ class GraphService:
                     w.sourceCount = $source_count
                 """,
                 workspace_id=WORKSPACE_ID,
-                graph_version=self.settings.graph_version,
+                graph_version=self.graph_version,
                 default_focus_person_id=DEFAULT_FOCUS_PERSON_ID,
                 source_count=SOURCE_COUNT,
             )
@@ -592,7 +1017,7 @@ class GraphService:
         if self.redis_client:
             summary = self._workspace_summary_from_neo4j() if self.neo4j_driver else self._workspace_summary_from_seed()
             self.redis_client.setex(
-                f"workspace-summary:{self.settings.graph_version}",
+                f"workspace-summary:{self.graph_version}",
                 60,
                 summary.model_dump_json(),
             )
@@ -625,7 +1050,7 @@ class GraphService:
 
         return WorkspaceSummary(
             workspace_id=WORKSPACE_ID,
-            graph_version=self.settings.graph_version,
+            graph_version=self.graph_version,
             people_count=record["people_count"],
             living_people_count=record["living_people_count"],
             source_count=record["source_count"],
@@ -636,7 +1061,7 @@ class GraphService:
     def _workspace_summary_from_seed(self) -> WorkspaceSummary:
         return WorkspaceSummary(
             workspace_id=WORKSPACE_ID,
-            graph_version=self.settings.graph_version,
+            graph_version=self.graph_version,
             people_count=len(PERSONS),
             living_people_count=sum(1 for person in PERSONS.values() if person.is_living),
             source_count=SOURCE_COUNT,
@@ -813,7 +1238,7 @@ class GraphService:
 
         return GraphChunk(
             workspace_id=WORKSPACE_ID,
-            graph_version=self.settings.graph_version,
+            graph_version=self.graph_version,
             focus_person_id=focus_person_id,
             nodes=sorted(nodes.values(), key=lambda item: item.display_name),
             relationships=list(relationships.values()),
@@ -884,7 +1309,7 @@ class GraphService:
 
         return GraphChunk(
             workspace_id=WORKSPACE_ID,
-            graph_version=self.settings.graph_version,
+            graph_version=self.graph_version,
             focus_person_id=person_id,
             nodes=nodes,
             relationships=relationships,
@@ -938,7 +1363,7 @@ class GraphService:
             depth=depth,
             chunk=GraphChunk(
                 workspace_id=WORKSPACE_ID,
-                graph_version=self.settings.graph_version,
+                graph_version=self.graph_version,
                 focus_person_id=person_id,
                 nodes=nodes,
                 relationships=relationships,

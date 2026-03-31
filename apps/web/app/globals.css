@@ -93,6 +93,24 @@ input {
   line-height: 1.65;
 }
 
+.heroLink,
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  border-radius: 999px;
+  text-decoration: none;
+}
+
+.heroLink {
+  margin-top: 0.8rem;
+  padding: 0.8rem 1.15rem;
+  background: rgba(242, 166, 90, 0.14);
+  border: 1px solid rgba(242, 166, 90, 0.34);
+  color: var(--text);
+}
+
 .heroRail {
   display: flex;
   flex-direction: column;
@@ -283,6 +301,10 @@ input {
   background: var(--bg-panel-strong);
 }
 
+.importPanel {
+  margin-top: 1.4rem;
+}
+
 .detailSection + .detailSection {
   margin-top: 1.6rem;
 }
@@ -325,6 +347,85 @@ input {
 .pathStep span {
   color: var(--accent-soft);
   font-size: 0.88rem;
+}
+
+.uploadCard {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fileInput {
+  width: 100%;
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  padding: 0.9rem 1rem;
+}
+
+.primaryButton {
+  cursor: pointer;
+  padding: 0.8rem 1.15rem;
+  border: 1px solid rgba(242, 166, 90, 0.38);
+  background: rgba(242, 166, 90, 0.2);
+  color: var(--text);
+}
+
+.primaryButton:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.importList {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.importCard {
+  padding: 1rem;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.importTopline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.importStatus {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.importStatus.completed {
+  background: rgba(154, 209, 212, 0.16);
+  color: #d5fbff;
+}
+
+.importStatus.failed {
+  background: rgba(255, 146, 139, 0.16);
+  color: #ffe0da;
+}
+
+.importStatus.pending {
+  background: rgba(242, 204, 143, 0.16);
+  color: #ffecbf;
+}
+
+.errorInline {
+  color: #ffd3cf;
 }
 
 @media (max-width: 1080px) {

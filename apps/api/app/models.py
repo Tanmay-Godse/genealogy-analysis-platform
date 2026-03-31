@@ -11,6 +11,12 @@ class Role(StrEnum):
     VIEWER = "viewer"
 
 
+class ImportStatus(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class EvidenceReference(BaseModel):
     source_id: str
     title: str
@@ -88,3 +94,20 @@ class KinshipResult(BaseModel):
     label: str
     path: list[KinshipPathStep]
     evidence: list[EvidenceReference]
+
+
+class ImportJobSummary(BaseModel):
+    import_id: str
+    filename: str
+    status: ImportStatus
+    workspace_id: str
+    graph_version: str
+    storage_key: str | None = None
+    people_count: int = 0
+    family_count: int = 0
+    relationship_count: int = 0
+    living_people_count: int = 0
+    focus_person_id: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    error: str | None = None

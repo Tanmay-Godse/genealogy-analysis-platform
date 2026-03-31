@@ -54,6 +54,25 @@ export type WorkspaceSummary = {
   defaultFocusPersonId: string;
 };
 
+export type ImportStatus = "pending" | "completed" | "failed";
+
+export type ImportJobSummary = {
+  importId: string;
+  filename: string;
+  status: ImportStatus;
+  workspaceId: string;
+  graphVersion: string;
+  storageKey: string | null;
+  peopleCount: number;
+  familyCount: number;
+  relationshipCount: number;
+  livingPeopleCount: number;
+  focusPersonId: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  error: string | null;
+};
+
 export type KinshipResult = {
   sourceId: string;
   targetId: string;
@@ -142,6 +161,40 @@ function mapGraphChunk(payload: {
     focusPersonId: payload.focus_person_id ?? payload.focusPersonId ?? "",
     nodes: payload.nodes.map(mapPersonSummary),
     relationships: payload.relationships.map(mapRelationshipSummary),
+  };
+}
+
+function mapImportJobSummary(payload: {
+  import_id: string;
+  filename: string;
+  status: ImportStatus;
+  workspace_id: string;
+  graph_version: string;
+  storage_key?: string | null;
+  people_count?: number;
+  family_count?: number;
+  relationship_count?: number;
+  living_people_count?: number;
+  focus_person_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  error?: string | null;
+}): ImportJobSummary {
+  return {
+    importId: payload.import_id,
+    filename: payload.filename,
+    status: payload.status,
+    workspaceId: payload.workspace_id,
+    graphVersion: payload.graph_version,
+    storageKey: payload.storage_key ?? null,
+    peopleCount: payload.people_count ?? 0,
+    familyCount: payload.family_count ?? 0,
+    relationshipCount: payload.relationship_count ?? 0,
+    livingPeopleCount: payload.living_people_count ?? 0,
+    focusPersonId: payload.focus_person_id ?? null,
+    createdAt: payload.created_at ?? null,
+    updatedAt: payload.updated_at ?? null,
+    error: payload.error ?? null,
   };
 }
 
@@ -402,4 +455,32 @@ export async function fetchKinship(
       note: item.note,
     })),
   };
+}
+
+export async function fetchImports(): Promise<ImportJobSummary[]> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/imports`, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(`Import list request failed with status ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as Array<Parameters<typeof mapImportJobSummary>[0]>;
+  return payload.map(mapImportJobSummary);
+}
+
+export async function uploadGedcom(file: File): Promise<ImportJobSummary> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/imports/gedcom`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `GEDCOM upload failed with status ${response.status}.`);
+  }
+
+  return mapImportJobSummary(await response.json());
 }
