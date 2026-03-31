@@ -1,0 +1,365 @@
+:root {
+  --font-display: "Fraunces", serif;
+  --font-sans: "Manrope", sans-serif;
+  --bg: #100c11;
+  --bg-panel: rgba(34, 25, 31, 0.82);
+  --bg-panel-strong: rgba(46, 34, 40, 0.94);
+  --border: rgba(248, 223, 188, 0.12);
+  --text: #f9f2e3;
+  --muted: #d5c6b3;
+  --accent: #f2a65a;
+  --accent-soft: #9ad1d4;
+  --danger: #ff928b;
+  --shadow: 0 18px 56px rgba(0, 0, 0, 0.34);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(circle at top left, rgba(242, 166, 90, 0.18), transparent 32%),
+    radial-gradient(circle at top right, rgba(154, 209, 212, 0.13), transparent 26%),
+    linear-gradient(180deg, #120d13 0%, #09070c 100%);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  width: min(1320px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2rem 0 3rem;
+}
+
+.heroCard,
+.controlPanel,
+.scenePanel,
+.detailsPanel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.heroCard {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 1.5rem;
+  padding: 1.75rem;
+}
+
+.eyebrow,
+.panelEyebrow,
+.controlLabel {
+  margin: 0 0 0.65rem;
+  color: var(--accent-soft);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.heroCard h1,
+.panelHeader h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.heroCard h1 {
+  font-size: clamp(2.5rem, 4vw, 4.4rem);
+  max-width: 12ch;
+}
+
+.heroText,
+.detailSummary,
+.mutedText,
+.evidenceCard p,
+.searchResult small {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.heroRail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.statusBadge,
+.errorBadge,
+.panelChip,
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.55rem 0.85rem;
+  width: fit-content;
+}
+
+.statusBadge,
+.panelChip,
+.pill {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.errorBadge {
+  background: rgba(255, 146, 139, 0.14);
+  border: 1px solid rgba(255, 146, 139, 0.3);
+  color: #ffe0da;
+}
+
+.panelChip.masked {
+  color: #d2eff0;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.metricCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.metricCard span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.metricCard strong {
+  font-size: 1.9rem;
+  font-weight: 700;
+}
+
+.controlPanel {
+  margin-top: 1.4rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 1.2rem;
+}
+
+.controlBlock {
+  position: relative;
+}
+
+.searchBlock {
+  min-height: 8.5rem;
+}
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.segment,
+.searchResult {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.segment {
+  padding: 0.7rem 1rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 180ms ease, background 180ms ease, border-color 180ms ease;
+}
+
+.segment:hover,
+.searchResult:hover {
+  transform: translateY(-1px);
+}
+
+.segment.active {
+  background: rgba(242, 166, 90, 0.18);
+  border-color: rgba(242, 166, 90, 0.45);
+}
+
+.searchInput {
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 0.9rem 1rem;
+}
+
+.searchInput::placeholder {
+  color: rgba(255, 255, 255, 0.44);
+}
+
+.searchResults {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.6rem;
+  max-height: 16rem;
+  overflow: auto;
+}
+
+.searchResult {
+  display: grid;
+  gap: 0.24rem;
+  width: 100%;
+  text-align: left;
+  border-radius: 18px;
+  padding: 0.9rem 1rem;
+  cursor: pointer;
+}
+
+.searchResult span {
+  color: var(--accent-soft);
+  font-size: 0.85rem;
+}
+
+.workspaceGrid {
+  margin-top: 1.4rem;
+  display: grid;
+  grid-template-columns: 1.55fr 1fr;
+  gap: 1rem;
+}
+
+.scenePanel,
+.detailsPanel {
+  padding: 1.25rem;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panelHeader h2 {
+  font-size: 1.75rem;
+}
+
+.sceneCanvasShell {
+  height: 620px;
+  border-radius: 24px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background:
+    radial-gradient(circle at top, rgba(154, 209, 212, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(17, 12, 17, 0.9), rgba(13, 10, 14, 1));
+}
+
+.sceneLoading {
+  display: grid;
+  place-items: center;
+  height: 620px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+}
+
+.detailsPanel {
+  background: var(--bg-panel-strong);
+}
+
+.detailSection + .detailSection {
+  margin-top: 1.6rem;
+}
+
+.detailSection h3 {
+  margin: 0 0 0.7rem;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+
+.pillRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1.4rem;
+}
+
+.evidenceCard,
+.pathStep {
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.evidenceCard + .evidenceCard {
+  margin-top: 0.65rem;
+}
+
+.pathList {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.pathStep {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.pathStep span {
+  color: var(--accent-soft);
+  font-size: 0.88rem;
+}
+
+@media (max-width: 1080px) {
+  .heroCard,
+  .controlPanel,
+  .workspaceGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .sceneCanvasShell,
+  .sceneLoading {
+    height: 480px;
+  }
+}
+
+@media (max-width: 640px) {
+  .shell {
+    width: min(100% - 1rem, 100%);
+    padding-top: 1rem;
+  }
+
+  .heroCard,
+  .controlPanel,
+  .scenePanel,
+  .detailsPanel {
+    border-radius: 22px;
+    padding: 1rem;
+  }
+
+  .heroCard h1 {
+    font-size: 2.4rem;
+  }
+
+  .sceneCanvasShell,
+  .sceneLoading {
+    height: 360px;
+  }
+}

@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm install --workspace apps/web
+
+      - name: Install backend dependencies
+        run: cd apps/api && uv pip install --system --python python -e .
+
+      - name: Run API tests
+        run: cd apps/api && python -m pytest
+
+      - name: Lint frontend
+        run: npm run lint --workspace apps/web
+
+      - name: Build frontend
+        run: npm run build --workspace apps/web
